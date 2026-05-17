@@ -1,0 +1,10 @@
+# Local state — never committed.
+**/.env
+**/workspace/
+**/backups/
+**/*.log
+.DS_Store
+.vscode/
+.idea/
+.claude/
+CLAUDE.md

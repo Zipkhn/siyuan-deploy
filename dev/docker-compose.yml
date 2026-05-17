@@ -1,0 +1,83 @@
+services:
+  siyuan:
+    image: b3log/siyuan:latest
+    container_name: siyuan-dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6806:6806"
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    command:
+      - --workspace=/siyuan/workspace
+      - --accessAuthCode=${SIYUAN_ACCESS_AUTH_CODE}
+    volumes:
+      - ./workspace:/siyuan/workspace
+      # Pas de `:ro` : l'entrypoint Siyuan fait `chown -R /siyuan/workspace` et un mount read-only le fait échouer.
+      # Sur macOS Docker Desktop, le chown ne modifie pas réellement l'ownership côté hôte (file-sharing transparente).
+      # Siyuan ne réécrit jamais le contenu d'un plugin de lui-même ; les rebuilds restent pilotés par Vite côté hôte.
+      - ../../siyuan-plugin-publish/dist:/siyuan/workspace/data/plugins/siyuan-plugin-publish
+
+  extractor:
+    image: node:20-alpine
+    container_name: siyuan-extractor-dev
+    restart: unless-stopped
+    working_dir: /app
+    depends_on:
+      - siyuan
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      NODE_ENV: development
+      SIYUAN_URL: http://siyuan:6806
+      SIYUAN_TOKEN: ${SIYUAN_TOKEN}
+      WEBHOOK_SECRET: ${EXTRACTOR_WEBHOOK_SECRET}
+      HOST: 0.0.0.0
+      PORT: 3000
+      SNAPSHOTS_DIR: /data/snapshots
+      EMIT_HTML: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../siyuan-extractor:/app
+      - extractor-node-modules:/app/node_modules
+      - snapshots:/data/snapshots
+    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+
+  reader:
+    image: node:20-bookworm-slim
+    container_name: siyuan-reader-dev
+    restart: unless-stopped
+    working_dir: /app
+    depends_on:
+      - extractor
+    ports:
+      - "127.0.0.1:3002:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: /data/reader/reader.db
+      AUTH_SECRET: ${READER_AUTH_SECRET}
+      AUTH_URL: http://localhost:3002
+      AUTH_TRUST_HOST: "true"
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      AUTH_EMAIL_FROM: ${READER_EMAIL_FROM}
+      SNAPSHOTS_DIR: /data/snapshots
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+    volumes:
+      - ../../siyuan-reader:/app
+      - reader-node-modules:/app/node_modules
+      - reader-next-cache:/app/.next
+      - reader-db:/data/reader
+      - snapshots:/data/snapshots:ro
+    command: >
+      sh -c "apt-get update -qq && apt-get install -y -qq python3 make g++ ca-certificates >/dev/null 2>&1 || true;
+             npm install --no-audit --no-fund &&
+             npm run db:push &&
+             npm run dev"
+
+volumes:
+  extractor-node-modules:
+  reader-node-modules:
+  reader-next-cache:
+  reader-db:
+  snapshots:
