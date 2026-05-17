@@ -55,20 +55,19 @@ services:
       - "127.0.0.1:3002:3000"
     environment:
       NODE_ENV: development
-      DATABASE_URL: /data/reader/reader.db
+      DATABASE_URL: file:/data/reader/reader.db
       AUTH_SECRET: ${READER_AUTH_SECRET}
       AUTH_URL: http://localhost:3002
       AUTH_TRUST_HOST: "true"
       RESEND_API_KEY: ${RESEND_API_KEY}
       AUTH_EMAIL_FROM: ${READER_EMAIL_FROM}
-      SNAPSHOTS_DIR: /data/snapshots
+      INGEST_SECRET: ${INGEST_SECRET}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
     volumes:
       - ../../siyuan-reader:/app
       - reader-node-modules:/app/node_modules
       - reader-next-cache:/app/.next
       - reader-db:/data/reader
-      - snapshots:/data/snapshots:ro
     command: >
       sh -c "apt-get update -qq && apt-get install -y -qq python3 make g++ ca-certificates >/dev/null 2>&1 || true;
              npm install --no-audit --no-fund &&
