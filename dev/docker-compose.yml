@@ -26,6 +26,7 @@ services:
     working_dir: /app
     depends_on:
       - siyuan
+      - reader
     ports:
       - "127.0.0.1:3001:3000"
     environment:
@@ -35,13 +36,13 @@ services:
       WEBHOOK_SECRET: ${EXTRACTOR_WEBHOOK_SECRET}
       HOST: 0.0.0.0
       PORT: 3000
-      SNAPSHOTS_DIR: /data/snapshots
+      READER_URL: http://reader:3000
+      INGEST_SECRET: ${INGEST_SECRET}
       EMIT_HTML: "true"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ../../siyuan-extractor:/app
       - extractor-node-modules:/app/node_modules
-      - snapshots:/data/snapshots
     command: sh -c "npm install --no-audit --no-fund && npm run dev"
 
   reader:
@@ -49,8 +50,6 @@ services:
     container_name: siyuan-reader-dev
     restart: unless-stopped
     working_dir: /app
-    depends_on:
-      - extractor
     ports:
       - "127.0.0.1:3002:3000"
     environment:
@@ -79,4 +78,3 @@ volumes:
   reader-node-modules:
   reader-next-cache:
   reader-db:
-  snapshots:
