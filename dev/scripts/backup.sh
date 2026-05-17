@@ -67,6 +67,19 @@ log "Archiving Docker named volumes..."
 backup_volume snapshots snapshots.tar.gz
 backup_volume reader-db reader-db.tar.gz
 
+log "Computing SHA256 sums..."
+# `sha256sum` is GNU, `shasum -a 256` is BSD/macOS. Pick whichever is present.
+if command -v sha256sum >/dev/null 2>&1; then
+    SHA_CMD="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+    SHA_CMD="shasum -a 256"
+else
+    log "ERROR: neither sha256sum nor shasum found; aborting." >&2
+    docker compose -f "$COMPOSE_FILE" start siyuan extractor reader
+    exit 1
+fi
+(cd "$OUT" && $SHA_CMD *.tar.gz > SHA256SUMS)
+
 log "Writing manifest..."
 {
     echo "timestamp: $TS"
@@ -74,6 +87,8 @@ log "Writing manifest..."
     echo "host: $(uname -a)"
     echo "files:"
     (cd "$OUT" && ls -lh *.tar.gz | awk '{print "  - " $9 "  " $5}')
+    echo "sha256:"
+    sed 's/^/  /' "$OUT/SHA256SUMS"
 } > "$OUT/MANIFEST.txt"
 
 log "Restarting services..."
@@ -81,4 +96,5 @@ docker compose -f "$COMPOSE_FILE" start siyuan extractor reader
 
 log "Done."
 log "Backup created at: $OUT"
+log "Verify anytime with: (cd $OUT && $SHA_CMD -c SHA256SUMS)"
 log "Restore with: scripts/restore.sh $TS"

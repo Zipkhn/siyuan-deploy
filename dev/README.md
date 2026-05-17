@@ -102,8 +102,9 @@ Le script :
 1. Stoppe les 3 services (sans toucher aux volumes).
 2. Tar.gz du `workspace/` depuis l'hôte.
 3. Tar.gz de chaque volume Docker via un conteneur alpine éphémère.
-4. Redémarre les services.
-5. Écrit `MANIFEST.txt` listant les fichiers + tailles.
+4. Calcule les sommes SHA256 des 3 archives → `SHA256SUMS`.
+5. Redémarre les services.
+6. Écrit `MANIFEST.txt` listant les fichiers, tailles, et sommes SHA256.
 
 Durée typique : quelques secondes pour un workspace modeste. Pendant le backup, Siyuan et le reader sont indisponibles (~10-30s).
 
@@ -116,6 +117,16 @@ ls -la backups/
 cat backups/<timestamp>/MANIFEST.txt
 ```
 
+### Vérifier l'intégrité d'un backup à la main
+
+```bash
+cd backups/<timestamp>
+sha256sum -c SHA256SUMS        # Linux
+shasum -a 256 -c SHA256SUMS    # macOS
+```
+
+Le restore fait cette vérif automatiquement avant toute écriture (voir plus bas).
+
 ### Restaurer
 
 ```bash
@@ -126,12 +137,17 @@ cat backups/<timestamp>/MANIFEST.txt
 ⚠️ **Destructif** : le restore remplace `workspace/` ET recrée les volumes Docker `snapshots` + `reader-db` à partir des archives. Le script demande confirmation (`yes`) avant d'agir.
 
 Workflow restore :
-1. `docker compose down` (containers supprimés, volumes conservés temporairement).
-2. Suppression des volumes existants.
-3. Recréation des volumes + extraction du contenu archivé.
-4. `docker compose up -d`.
+1. **Vérif intégrité** : `sha256sum -c SHA256SUMS` sur les 3 archives. Si une somme ne matche pas, le script abort avant de toucher quoi que ce soit. Les backups antérieurs à V1.1 (sans `SHA256SUMS`) loggent un WARN et continuent.
+2. Confirmation interactive (taper `yes`).
+3. `docker compose down` (containers supprimés, volumes conservés temporairement).
+4. Suppression des volumes existants.
+5. Recréation des volumes + extraction du contenu archivé.
+6. **Smoke check** : chaque volume restauré doit contenir au moins un fichier, sinon abort avant de relancer le stack.
+7. `docker compose up -d`.
 
 Après restore : vérifier `docker compose logs --tail 30` pour confirmer que les 3 services repartent correctement.
+
+⚠️ Côté reader, après un restore, faire un sync admin (`/admin` → bouton "Synchroniser tous les projets") pour rafraîchir la DB et l'index FTS si le contenu des snapshots a changé.
 
 ### Automatisation (cron)
 
@@ -149,9 +165,8 @@ Combine avec une rotation pour éviter l'accumulation infinie :
 ### Limites V1
 
 - Pas de chiffrement at-rest. Si tu pousses les backups sur un cloud, chiffre avec `age` ou `gpg` avant.
-- Pas de checksum d'intégrité (sha256). À ajouter dans une V1.1.
 - Pas de backup incrémental — chaque backup = full. Tolérable tant que la volumétrie est faible.
-- Pas de vérification post-restore automatique. À tester manuellement.
+- Le smoke check post-restore ne valide que la présence de fichiers, pas la cohérence métier (ex : il ne détecte pas une DB SQLite corrompue qui s'ouvre quand même). Pour aller plus loin : ouvrir un doc dans le reader après restore.
 
 ## Notes
 

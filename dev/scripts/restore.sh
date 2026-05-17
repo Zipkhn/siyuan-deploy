@@ -42,6 +42,49 @@ fi
 
 log() { printf '[restore] %s\n' "$*"; }
 
+# Verify archive integrity before doing anything destructive. If SHA256SUMS
+# is missing (old backups written before V1.1), the restore continues but
+# logs a clear warning so the operator can decide to abort manually.
+verify_integrity() {
+    if [[ ! -f "$BACKUP/SHA256SUMS" ]]; then
+        log "WARN: no SHA256SUMS file in this backup — skipping integrity check."
+        log "WARN: this backup likely predates V1.1; verify archives by hand."
+        return 0
+    fi
+    local sha_cmd
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha_cmd="sha256sum"
+    elif command -v shasum >/dev/null 2>&1; then
+        sha_cmd="shasum -a 256"
+    else
+        log "ERROR: neither sha256sum nor shasum installed; cannot verify integrity." >&2
+        exit 1
+    fi
+    log "Verifying SHA256 sums..."
+    if ! (cd "$BACKUP" && $sha_cmd -c SHA256SUMS); then
+        log "ERROR: integrity check failed. Refusing to restore corrupted backup." >&2
+        exit 1
+    fi
+    log "Integrity OK."
+}
+
+# After extraction, sanity-check that the named volumes received content.
+# Catches the silent case where a corrupted tarball "extracts" into an empty
+# tree without erroring out.
+verify_volume_not_empty() {
+    local short_name="$1"
+    local full_name
+    full_name="$(resolve_volume "$short_name")"
+    local count
+    count="$(docker run --rm -v "$full_name:/v:ro" alpine:3.20 \
+        sh -c "find /v -mindepth 1 -maxdepth 4 -print 2>/dev/null | head -n1 | wc -l")"
+    if [[ "$count" -eq 0 ]]; then
+        log "ERROR: volume $short_name is empty after restore. Aborting before bringing the stack back up." >&2
+        exit 1
+    fi
+    log "Volume $short_name: non-empty after restore."
+}
+
 resolve_volume() {
     local short_name="$1"
     local full
@@ -54,6 +97,8 @@ resolve_volume() {
     fi
     printf '%s' "$full"
 }
+
+verify_integrity
 
 echo "================================================================"
 echo " WARNING: This restore will OVERWRITE current data with backup:"
@@ -96,12 +141,24 @@ log "Restoring workspace/ from backup..."
 if [[ -f "$BACKUP/workspace.tar.gz" ]]; then
     rm -rf "$COMPOSE_DIR/workspace"
     tar -xzf "$BACKUP/workspace.tar.gz" -C "$COMPOSE_DIR"
-else
-    log "WARN: workspace.tar.gz absent — keeping current workspace/ as-is."
+    if [[ ! -d "$COMPOSE_DIR/workspace/data" ]]; then
+        log "ERROR: workspace/data missing after extract. Aborting." >&2
+        exit 1
+    fi
+    log "workspace/: non-empty after restore."
 fi
 
 restore_volume snapshots snapshots.tar.gz
 restore_volume reader-db reader-db.tar.gz
+
+# Post-extraction sanity: catch corrupted tarballs that decompress into empty
+# trees without erroring. Only check volumes that were actually restored.
+if [[ -f "$BACKUP/snapshots.tar.gz" ]]; then
+    verify_volume_not_empty snapshots
+fi
+if [[ -f "$BACKUP/reader-db.tar.gz" ]]; then
+    verify_volume_not_empty reader-db
+fi
 
 log "Bringing stack back up..."
 docker compose -f "$COMPOSE_FILE" up -d
