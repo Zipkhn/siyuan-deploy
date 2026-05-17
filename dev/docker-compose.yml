@@ -36,7 +36,7 @@ services:
       WEBHOOK_SECRET: ${EXTRACTOR_WEBHOOK_SECRET}
       HOST: 0.0.0.0
       PORT: 3000
-      READER_URL: http://reader:3000
+      READER_URL: ${READER_URL:-http://reader:3000}
       INGEST_SECRET: ${INGEST_SECRET}
       EMIT_HTML: "true"
       LOG_LEVEL: ${LOG_LEVEL:-info}
